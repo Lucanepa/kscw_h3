@@ -38,9 +38,11 @@
     }
     
     .kscw-carousel-item {
-      min-width: 100%;
+      width: 300px;
+      min-width: 300px;
       height: 300px;
       position: relative;
+      flex-shrink: 0;
     }
     
     .kscw-carousel-item img {
@@ -232,7 +234,7 @@
       autoPlayInterval = setInterval(() => {
         // Use loadedImages.length instead of images.length to only cycle through loaded images
         currentIndex = (currentIndex + 1) % loadedImages.length
-        carouselInner.style.transform = `translateX(-${currentIndex * 100}%)`
+        carouselInner.style.transform = `translateX(-${currentIndex * 300}px)`
       }, 3000) // 3 seconds per slide
     }
 
