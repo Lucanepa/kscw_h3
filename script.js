@@ -134,12 +134,24 @@ async function renderItem(bucket, obj) {
   })
 }
 
-function generateFileName() {
+async function generateFileName() {
   const now = new Date()
   const year = now.getFullYear()
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
-  return `${year}${month}${day}_pic${imageCounter++}.jpg`
+  const datePrefix = `${year}${month}${day}`
+  
+  // Get list of existing files to find next available number
+  const { data: existingFiles } = await supabase.storage.from(SUPABASE_CONFIG.bucket).list('')
+  const existingNames = existingFiles ? existingFiles.map(f => f.name) : []
+  
+  // Find the next available pic number for today
+  let picNumber = 1
+  while (existingNames.includes(`${datePrefix}_pic${picNumber}.jpg`)) {
+    picNumber++
+  }
+  
+  return `${datePrefix}_pic${picNumber}.jpg`
 }
 
 function updateDeleteButton() {
@@ -229,7 +241,7 @@ async function uploadSelected() {
   
   for (let i = 0; i < selectedFiles.length; i++) {
     const f = selectedFiles[i]
-    const fileName = generateFileName()
+    const fileName = await generateFileName()
     
     const { data, error } = await supabase.storage.from(bucket).upload(fileName, f, {
       upsert: false,

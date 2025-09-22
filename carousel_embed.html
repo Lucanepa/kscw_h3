@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<body>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <style>
+    /* Carousel-specific styles - scoped to avoid conflicts */
+    .kscw-carousel-container {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+      margin: 0;
+      background: rgb(255, 255, 255);
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .kscw-carousel-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      position: relative;
+    }
+    
+    .kscw-carousel {
+      position: relative;
+      width: 300px;
+      height: 300px;
+      overflow: hidden;
+      border-radius: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    
+    .kscw-carousel-inner {
+      display: flex;
+      transition: transform 0.5s ease-in-out;
+    }
+    
+    .kscw-carousel-item {
+      min-width: 100%;
+      height: 300px;
+      position: relative;
+    }
+    
+    .kscw-carousel-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    
+    .kscw-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      font-size: 18px;
+      color: #94a3b8;
+    }
+    
+    .kscw-error {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      font-size: 18px;
+      color: #ef4444;
+      text-align: center;
+    }
+    
+    .kscw-hidden {
+      display: none;
+    }
+  </style>
+
+  <div class="kscw-carousel-container">
+    <div class="kscw-carousel-wrapper">
+      <div id="kscw-loading" class="kscw-loading">
+        Loading images...
+      </div>
+      
+      <div id="kscw-error" class="kscw-error kscw-hidden">
+        Failed to load images. Please check the console for details.
+      </div>
+      
+      <div id="kscw-carousel" class="kscw-carousel kscw-hidden">
+        <div class="kscw-carousel-inner" id="kscw-carouselInner"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase JS v2 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // Supabase Configuration - embedded directly
+    const KSCW_SUPABASE_CONFIG = {
+      url: 'https://wilrrlwqgvzjdhmnwmte.supabase.co',
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpbHJybHdxZ3Z6amRobW53bXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM2MDU2NzcsImV4cCI6MjA2OTE4MTY3N30.XUGU99itVC9sbNvh6qkuxgAT1lirnu4u_MBJDFzoB2Q',
+      bucket: 'carousel_h3'
+    };
+
+    let supabase;
+    let images = [];
+    let currentIndex = 0;
+    let autoPlayInterval;
+
+    const el = (id) => document.getElementById(id)
+    const carouselInner = el('kscw-carouselInner')
+
+    async function initCarousel() {
+      try {
+        supabase = window.supabase.createClient(KSCW_SUPABASE_CONFIG.url, KSCW_SUPABASE_CONFIG.anonKey)
+        
+        // Load images from bucket
+        const { data, error } = await supabase.storage.from(KSCW_SUPABASE_CONFIG.bucket).list('', {
+          sortBy: { column: 'updated_at', order: 'desc' }
+        })
+        
+        if (error) throw error
+        
+        images = data.filter(file => file.name && file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i))
+        
+        if (images.length === 0) {
+          showError('No images found in the bucket')
+          return
+        }
+        
+        // Randomize images
+        images = shuffleArray(images)
+        
+        await loadImages()
+        setupCarousel()
+        startAutoPlay()
+        
+      } catch (error) {
+        console.error('Error loading images:', error)
+        showError('Failed to load images: ' + error.message)
+      }
+    }
+
+    function shuffleArray(array) {
+      const shuffled = [...array]
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      }
+      return shuffled
+    }
+
+    async function loadImages() {
+      for (let i = 0; i < images.length; i++) {
+        const image = images[i]
+        let url
+        
+        try {
+          // Try signed URL first
+          const { data: signedData, error: signedError } = await supabase.storage
+            .from(KSCW_SUPABASE_CONFIG.bucket)
+            .createSignedUrl(image.name, 60 * 60 * 24) // 24 hours
+          
+          if (!signedError && signedData) {
+            url = signedData.signedUrl
+          } else {
+            // Fallback to public URL
+            const { data } = supabase.storage.from(KSCW_SUPABASE_CONFIG.bucket).getPublicUrl(image.name)
+            url = data.publicUrl
+          }
+          
+          // Create carousel item
+          const item = document.createElement('div')
+          item.className = 'kscw-carousel-item'
+          item.innerHTML = `<img src="${url}" alt="${image.name}" loading="lazy" />`
+          carouselInner.appendChild(item)
+          
+        } catch (error) {
+          console.error('Error loading image:', image.name, error)
+        }
+      }
+    }
+
+    function setupCarousel() {
+      el('kscw-loading').classList.add('kscw-hidden')
+      el('kscw-carousel').classList.remove('kscw-hidden')
+    }
+
+    function startAutoPlay() {
+      if (autoPlayInterval) clearInterval(autoPlayInterval)
+      autoPlayInterval = setInterval(() => {
+        currentIndex = (currentIndex + 1) % images.length
+        carouselInner.style.transform = `translateX(-${currentIndex * 100}%)`
+      }, 3000) // 3 seconds per slide
+    }
+
+    function showError(message) {
+      el('kscw-loading').classList.add('kscw-hidden')
+      el('kscw-error').classList.remove('kscw-hidden')
+      el('kscw-error').textContent = message
+    }
+
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', initCarousel)
+  </script>
+</body>
+</html>
