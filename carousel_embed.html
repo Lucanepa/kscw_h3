@@ -102,8 +102,10 @@
 
     let supabase;
     let images = [];
+    let loadedImages = [];
     let currentIndex = 0;
     let autoPlayInterval;
+    let isInitialLoad = true;
 
     const el = (id) => document.getElementById(id)
     const carouselInner = el('kscw-carouselInner')
@@ -129,9 +131,13 @@
         // Randomize images
         images = shuffleArray(images)
         
-        await loadImages()
+        // Load first 3-4 images immediately, then load the rest in background
+        await loadInitialImages()
         setupCarousel()
         startAutoPlay()
+        
+        // Load remaining images in background
+        loadRemainingImages()
         
       } catch (error) {
         console.error('Error loading images:', error)
@@ -148,34 +154,71 @@
       return shuffled
     }
 
-    async function loadImages() {
-      for (let i = 0; i < images.length; i++) {
+    async function loadInitialImages() {
+      // Load first 3-4 images immediately
+      const initialCount = Math.min(4, images.length)
+      
+      for (let i = 0; i < initialCount; i++) {
         const image = images[i]
-        let url
+        const url = await getImageUrl(image)
         
-        try {
-          // Try signed URL first
-          const { data: signedData, error: signedError } = await supabase.storage
-            .from(KSCW_SUPABASE_CONFIG.bucket)
-            .createSignedUrl(image.name, 60 * 60 * 24) // 24 hours
-          
-          if (!signedError && signedData) {
-            url = signedData.signedUrl
-          } else {
-            // Fallback to public URL
-            const { data } = supabase.storage.from(KSCW_SUPABASE_CONFIG.bucket).getPublicUrl(image.name)
-            url = data.publicUrl
-          }
-          
-          // Create carousel item
+        if (url) {
+          const item = document.createElement('div')
+          item.className = 'kscw-carousel-item'
+          item.innerHTML = `<img src="${url}" alt="${image.name}" loading="eager" />`
+          carouselInner.appendChild(item)
+          loadedImages.push(image)
+        }
+      }
+      
+      // Set initial carousel width
+      updateCarouselWidth()
+    }
+
+    async function loadRemainingImages() {
+      // Load remaining images in background
+      for (let i = 4; i < images.length; i++) {
+        const image = images[i]
+        const url = await getImageUrl(image)
+        
+        if (url) {
           const item = document.createElement('div')
           item.className = 'kscw-carousel-item'
           item.innerHTML = `<img src="${url}" alt="${image.name}" loading="lazy" />`
           carouselInner.appendChild(item)
+          loadedImages.push(image)
           
-        } catch (error) {
-          console.error('Error loading image:', image.name, error)
+          // Update carousel width to accommodate new image
+          updateCarouselWidth()
         }
+        
+        // Small delay to not overwhelm the browser
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+
+    function updateCarouselWidth() {
+      // Update the carousel inner width to accommodate all loaded images
+      carouselInner.style.width = `${loadedImages.length * 100}%`
+    }
+
+    async function getImageUrl(image) {
+      try {
+        // Try signed URL first
+        const { data: signedData, error: signedError } = await supabase.storage
+          .from(KSCW_SUPABASE_CONFIG.bucket)
+          .createSignedUrl(image.name, 60 * 60 * 24) // 24 hours
+        
+        if (!signedError && signedData) {
+          return signedData.signedUrl
+        } else {
+          // Fallback to public URL
+          const { data } = supabase.storage.from(KSCW_SUPABASE_CONFIG.bucket).getPublicUrl(image.name)
+          return data.publicUrl
+        }
+      } catch (error) {
+        console.error('Error getting URL for image:', image.name, error)
+        return null
       }
     }
 
@@ -187,7 +230,8 @@
     function startAutoPlay() {
       if (autoPlayInterval) clearInterval(autoPlayInterval)
       autoPlayInterval = setInterval(() => {
-        currentIndex = (currentIndex + 1) % images.length
+        // Use loadedImages.length instead of images.length to only cycle through loaded images
+        currentIndex = (currentIndex + 1) % loadedImages.length
         carouselInner.style.transform = `translateX(-${currentIndex * 100}%)`
       }, 3000) // 3 seconds per slide
     }
