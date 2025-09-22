@@ -264,6 +264,7 @@ async function uploadSelected() {
   }
   
   selectedFiles = []
+  el('fileInput').value = '' // Clear the file input
   displaySelectedFiles()
   await listAll()
   alert(`Successfully uploaded ${completedFiles} file(s)!`)
