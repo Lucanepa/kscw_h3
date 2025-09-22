@@ -54,6 +54,7 @@ async function renderItem(bucket, obj) {
       url = signedData.signedUrl
       console.log('Using signed URL for:', obj.name)
     } else {
+      console.warn('Signed URL failed for:', obj.name, signedError)
       throw new Error('Signed URL failed')
     }
   } catch (error) {
@@ -74,7 +75,11 @@ async function renderItem(bucket, obj) {
   
   // Add error handling
   img.onerror = function() {
-    console.error('Failed to load image:', url)
+    console.error('Failed to load image:', obj.name, 'URL:', url)
+    console.error('This usually means:')
+    console.error('1. Bucket is not set to public')
+    console.error('2. RLS policies are blocking access')
+    console.error('3. File does not exist or was deleted')
     this.style.background = '#1a0e20'
     this.style.display = 'flex'
     this.style.alignItems = 'center'
@@ -166,7 +171,8 @@ async function deleteSelected() {
   if (!supabase) return alert('Please connect to Supabase first')
   if (selectedImages.length === 0) return alert('No images selected')
   
-  if (!confirm(`Delete ${selectedImages.length} selected image(s)? This cannot be undone!`)) return
+  const countToDelete = selectedImages.length
+  if (!confirm(`Delete ${countToDelete} selected image(s)? This cannot be undone!`)) return
   
   const bucket = SUPABASE_CONFIG.bucket
   const { error } = await supabase.storage.from(bucket).remove(selectedImages)
@@ -175,7 +181,7 @@ async function deleteSelected() {
   selectedImages = []
   updateDeleteButton()
   await listAll()
-  alert(`Successfully deleted ${selectedImages.length} image(s)!`)
+  alert(`Successfully deleted ${countToDelete} image(s)!`)
 }
 
 function displaySelectedFiles() {
