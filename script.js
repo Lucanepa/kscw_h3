@@ -7,17 +7,14 @@ const bar = el('bar')
 function setProgress(p) { bar.style.width = p + '%' }
 
 async function connect() {
-  const url = el('url').value.trim()
-  const anon = el('anon').value.trim()
-  if (!url || !anon) return alert('Set your Project URL and Anon key')
-  supabase = window.supabase.createClient(url, anon)
+  supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
   await listAll()
 }
 
 async function listAll() {
   grid.innerHTML = ''
   if (!supabase) return
-  const bucket = el('bucket').value.trim()
+  const bucket = SUPABASE_CONFIG.bucket
   // list recursively by prefix '' — we'll paginate
   let page = 0, done = false
   const all = []
@@ -38,7 +35,7 @@ async function listAll() {
 }
 
 async function renderItem(bucket, obj) {
-  const mode = el('readMode').value
+  const mode = 'public' // Always use public mode since we removed the selector
   // Get a URL for display
   let url
   if (mode === 'public') {
@@ -80,7 +77,7 @@ async function upload() {
   const files = el('file').files
   if (!files || files.length === 0) return alert('Pick one or more files')
   
-  const bucket = el('bucket').value.trim()
+  const bucket = SUPABASE_CONFIG.bucket
   const totalFiles = files.length
   let completedFiles = 0
   
@@ -156,9 +153,7 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'upload') upload()
 })
 
-// Initialize with config values
+// Auto-connect when page loads
 document.addEventListener('DOMContentLoaded', () => {
-  el('url').value = SUPABASE_CONFIG.url
-  el('anon').value = SUPABASE_CONFIG.anonKey
-  el('bucket').value = SUPABASE_CONFIG.bucket
+  connect()
 })

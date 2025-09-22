@@ -2,43 +2,19 @@
 <html lang="en">
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Supabase Image Tool</title>
+  <title>KSCW H3 Images Tool</title>
+  <link rel="icon" type="image/svg+xml" href="kscw_trio.png" />
   <link rel="stylesheet" href="styles.css" />
   <body>
     <header>
-      <h1>📷 Supabase Image Tool</h1>
+      <h1>KSCW H3 Images Tool</h1>
       <div class="toolbar">
         <span class="pill">Public Access</span>
       </div>
     </header>
 
     <div class="app">
-      <section class="card">
-        <div class="row" style="align-items:flex-end">
-          <div>
-            <label class="caps">Bucket</label><br />
-            <input id="bucket" />
-          </div>
-          <div>
-            <label class="caps">Project URL</label><br />
-            <input id="url" size="36" placeholder="https://YOUR-PROJECT.supabase.co" />
-          </div>
-          <div class="wide">
-            <label class="caps">Anon public key</label><br />
-            <input id="anon" class="wide" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…" />
-          </div>
-        </div>
-        <div class="row" style="margin-top:12px">
-          <label class="caps">Read mode</label>
-          <select id="readMode">
-            <option value="public">Public bucket (simple getPublicUrl)</option>
-            <option value="signed">Private bucket (show with signed URLs)</option>
-          </select>
-          <button id="connect" class="primary">Connect</button>
-          <button id="refresh">Refresh list</button>
-        </div>
-      </section>
-
+      <img src="kscwh3teamfoto.jpg" alt="KSCW H3 Volleyball Team" class="team-photo" />
       <section class="card" style="margin-top:14px">
         <div class="row-between">
           <div class="toolbar">
@@ -60,12 +36,13 @@
       <section class="card" style="margin-top:14px">
         <div class="row-between">
           <div class="caps">Images in bucket</div>
-          <div class="caps muted">Anyone can delete items</div>
+          <div class="toolbar">
+            <div class="caps muted">Anyone can delete items</div>
+            <button id="refresh">Refresh list</button>
+          </div>
         </div>
         <div id="grid" class="grid"></div>
       </section>
-
-      <div class="footer">Made with <a href="https://supabase.com/docs" target="_blank" rel="noreferrer">Supabase</a></div>
     </div>
 
     <!-- Supabase JS v2 CDN -->
