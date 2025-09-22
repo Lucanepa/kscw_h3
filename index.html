@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supabase Image Tool</title>
+  <style>
+    :root { --gap: 12px; --radius: 14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; margin: 0; background: #0b1020; color: #f1f5f9 }
+    header { padding: 18px 16px; display: flex; gap: var(--gap); align-items: center; justify-content: space-between; border-bottom: 1px solid #223; position: sticky; top: 0; backdrop-filter: blur(6px); background: rgba(11,16,32,.65) }
+    h1 { font-size: 18px; margin: 0; letter-spacing: .3px }
+    .app { max-width: 1100px; margin: 0 auto; padding: 16px }
+    .row { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: center }
+    .card { background: #11182f; border: 1px solid #223; border-radius: var(--radius); padding: 14px }
+    .toolbar { display: flex; gap: var(--gap); align-items: center; flex-wrap: wrap }
+    input, button, select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 10px; padding: 8px 12px; font-size: 14px }
+    button { cursor: pointer }
+    button.primary { background: #1f2937; border-color: #475569 }
+    button.danger { background: #3b0b0b; border-color: #7f1d1d }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-top: 14px }
+    .item { background: #0d1328; border: 1px solid #1f2a44; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column }
+    .item img { width: 100%; height: 180px; object-fit: cover; background: #0a0e20 }
+    .item .meta { padding: 10px; display: grid; gap: 6px; font-size: 12px; color: #cbd5e1 }
+    .caps { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: #94a3b8 }
+    .row-between { display:flex; align-items:center; justify-content:space-between }
+    .muted { color: #93a4bd }
+    .owner { color: #8b5cf6 }
+    .hidden { display: none }
+    .footer { text-align:center; padding: 24px; color:#94a3b8 }
+    .pill { padding: 4px 8px; border:1px solid #334155; border-radius:999px; font-size: 12px }
+    a { color: #a5b4fc; text-decoration: none }
+    .wide { width: 100% }
+    .progress { height: 8px; background:#0b1228; border-radius: 8px; overflow: hidden; border:1px solid #233 }
+    .progress > div { height: 100%; width:0% }
+  </style>
+  <body>
+    <header>
+      <h1>📷 Supabase Image Tool</h1>
+      <div class="toolbar">
+        <span id="status" class="pill">Not signed in</span>
+        <button id="signin" class="primary">Sign in (magic link)</button>
+        <button id="signout" class="danger hidden">Sign out</button>
+      </div>
+    </header>
+
+    <div class="app">
+      <section class="card">
+        <div class="row" style="align-items:flex-end">
+          <div>
+            <label class="caps">Bucket</label><br />
+            <input id="bucket" value="photos" />
+          </div>
+          <div>
+            <label class="caps">Project URL</label><br />
+            <input id="url" size="36" placeholder="https://YOUR-PROJECT.supabase.co" />
+          </div>
+          <div class="wide">
+            <label class="caps">Anon public key</label><br />
+            <input id="anon" class="wide" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <label class="caps">Read mode</label>
+          <select id="readMode">
+            <option value="public">Public bucket (simple getPublicUrl)</option>
+            <option value="signed">Private bucket (show with signed URLs)</option>
+          </select>
+          <button id="connect" class="primary">Connect</button>
+          <button id="refresh">Refresh list</button>
+          <span id="userInfo" class="pill">—</span>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:14px">
+        <div class="row-between">
+          <div class="toolbar">
+            <input type="file" id="file" accept="image/*" />
+            <button id="upload" class="primary">Upload</button>
+          </div>
+          <div style="min-width:220px">
+            <div class="caps" style="margin-bottom:6px">Upload progress</div>
+            <div class="progress"><div id="bar"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:14px">
+        <div class="row-between">
+          <div class="caps">Images in bucket</div>
+          <div class="caps muted">Only owners can delete their items</div>
+        </div>
+        <div id="grid" class="grid"></div>
+      </section>
+
+      <div class="footer">Made with <a href="https://supabase.com/docs" target="_blank" rel="noreferrer">Supabase</a></div>
+    </div>
+
+    <!-- Supabase JS v2 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+      let supabase, session, currentUser;
+
+      const el = (id) => document.getElementById(id)
+      const grid = el('grid')
+      const status = el('status')
+      const userInfo = el('userInfo')
+      const bar = el('bar')
+
+      function setProgress(p) { bar.style.width = p + '%' }
+      function setAuthUI() {
+        if (currentUser) {
+          status.textContent = 'Signed in'
+          el('signin').classList.add('hidden')
+          el('signout').classList.remove('hidden')
+          userInfo.textContent = currentUser.email + ' · ' + currentUser.id
+        } else {
+          status.textContent = 'Not signed in'
+          el('signin').classList.remove('hidden')
+          el('signout').classList.add('hidden')
+          userInfo.textContent = '—'
+        }
+      }
+
+      async function connect() {
+        const url = el('url').value.trim()
+        const anon = el('anon').value.trim()
+        if (!url || !anon) return alert('Set your Project URL and Anon key')
+        supabase = window.supabase.createClient(url, anon)
+        const { data } = await supabase.auth.getSession()
+        session = data.session
+        currentUser = session?.user || null
+        setAuthUI()
+        await listAll()
+        supabase.auth.onAuthStateChange((_event, s) => {
+          session = s
+          currentUser = s?.user || null
+          setAuthUI()
+          listAll()
+        })
+      }
+
+      async function listAll() {
+        grid.innerHTML = ''
+        if (!supabase) return
+        const bucket = el('bucket').value.trim()
+        // list recursively by prefix '' — we’ll paginate
+        let page = 0, done = false
+        const all = []
+        while (!done) {
+          const { data, error } = await supabase.storage.from(bucket).list('', {
+            limit: 100,
+            offset: page * 100,
+            sortBy: { column: 'updated_at', order: 'desc' }
+          })
+          if (error) { console.error(error); alert('List error: ' + error.message); return }
+          all.push(...data.filter(x => x.name))
+          if (!data.length || data.length < 100) done = true; else page++
+        }
+        // Render each file
+        for (const obj of all) {
+          await renderItem(bucket, obj)
+        }
+      }
+
+      async function renderItem(bucket, obj) {
+        const mode = el('readMode').value
+        // Get a URL for display
+        let url
+        if (mode === 'public') {
+          const { data } = supabase.storage.from(bucket).getPublicUrl(obj.name)
+          url = data.publicUrl
+        } else {
+          const { data, error } = await supabase.storage.from(bucket).createSignedUrl(obj.name, 60 * 10) // 10 min
+          if (error) { console.warn('signed url error', error); return }
+          url = data.signedUrl
+        }
+        // We also want metadata: owner, updated_at
+        // storage.list returns only FileObject; owner is not included. We can infer deletability by trying to create a signed URL for delete, but better: try a lightweight delete check via RPC.
+        // Simpler: show a Delete button that calls delete; if policy denies, we show error.
+
+        const item = document.createElement('div')
+        item.className = 'item'
+        item.innerHTML = `
+          <img loading="lazy" src="${url}" alt="${obj.name}" />
+          <div class="meta">
+            <div class="row-between"><span>${obj.name}</span><span class="caps">${(obj.metadata?.size||0)/1024|0} KB</span></div>
+            <div class="row" style="justify-content:space-between">
+              <a href="${url}" target="_blank" rel="noreferrer">Open</a>
+              <button class="danger" data-name="${obj.name}">Delete</button>
+            </div>
+          </div>`
+        grid.appendChild(item)
+        const delBtn = item.querySelector('button[data-name]')
+        delBtn.addEventListener('click', async (e) => {
+          const name = e.currentTarget.getAttribute('data-name')
+          if (!confirm('Delete this image?')) return
+          const { error } = await supabase.storage.from(bucket).remove([name])
+          if (error) return alert('Delete failed: ' + error.message)
+          item.remove()
+        })
+      }
+
+      async function upload() {
+        if (!currentUser) return alert('Sign in first')
+        const f = el('file').files?.[0]
+        if (!f) return alert('Pick a file')
+        const bucket = el('bucket').value.trim()
+        const ext = f.name.split('.').pop()
+        const now = new Date().toISOString().replaceAll(':', '-')
+        // Name pattern: <userId>/<timestamp>-<random>.<ext>
+        const path = `${currentUser.id}/${now}-${Math.random().toString(36).slice(2)}.${ext}`
+        setProgress(5)
+        const { data, error } = await supabase.storage.from(bucket).upload(path, f, {
+          upsert: false,
+          cacheControl: '3600',
+          contentType: f.type
+        })
+        if (error) { setProgress(0); return alert('Upload failed: ' + error.message) }
+        setProgress(100)
+        el('file').value = ''
+        await listAll()
+        setTimeout(()=> setProgress(0), 1200)
+      }
+
+      async function sendMagicLink() {
+        const email = prompt('Enter your email for a magic-link sign in:')
+        if (!email) return
+        const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.href } })
+        if (error) return alert('Sign-in failed: ' + error.message)
+        alert('Check your email for the sign-in link!')
+      }
+
+      document.addEventListener('click', (e) => {
+        if (e.target.id === 'connect') connect()
+        if (e.target.id === 'refresh') listAll()
+        if (e.target.id === 'upload') upload()
+        if (e.target.id === 'signin') sendMagicLink()
+        if (e.target.id === 'signout') supabase?.auth.signOut()
+      })
+    </script>
+  </body>
+</html>
