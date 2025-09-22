@@ -2,11 +2,112 @@ let supabase;
 let selectedFiles = [];
 let selectedImages = [];
 let imageCounter = 1;
+let isUploading = false;
 
 const el = (id) => document.getElementById(id)
 const grid = el('grid')
 const selectedFilesDiv = el('selectedFiles')
 const fileList = el('fileList')
+
+// Page-based alert system
+function showAlert(message, type = 'info') {
+  // Remove existing alerts
+  const existingAlerts = document.querySelectorAll('.page-alert')
+  existingAlerts.forEach(alert => alert.remove())
+  
+  const alert = document.createElement('div')
+  alert.className = `page-alert page-alert-${type}`
+  alert.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${type === 'error' ? '#dc2626' : type === 'success' ? '#16a34a' : '#3b82f6'};
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 1000;
+    max-width: 400px;
+    font-size: 14px;
+    line-height: 1.4;
+  `
+  alert.textContent = message
+  
+  document.body.appendChild(alert)
+  
+  // Auto-remove after 5 seconds
+  setTimeout(() => {
+    if (alert.parentNode) {
+      alert.remove()
+    }
+  }, 5000)
+}
+
+function showConfirm(message, callback) {
+  // Remove existing confirm dialogs
+  const existingConfirms = document.querySelectorAll('.page-confirm')
+  existingConfirms.forEach(confirm => confirm.remove())
+  
+  const overlay = document.createElement('div')
+  overlay.className = 'page-confirm'
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `
+  
+  const dialog = document.createElement('div')
+  dialog.style.cssText = `
+    background: #1e293b;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 400px;
+    margin: 20px;
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);
+  `
+  
+  dialog.innerHTML = `
+    <div style="color: #f1f5f9; margin-bottom: 16px; line-height: 1.5;">${message}</div>
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <button id="confirm-cancel" style="
+        background: #374151;
+        color: #f1f5f9;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+      ">Cancel</button>
+      <button id="confirm-ok" style="
+        background: #dc2626;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+      ">OK</button>
+    </div>
+  `
+  
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+  
+  dialog.querySelector('#confirm-cancel').addEventListener('click', () => {
+    overlay.remove()
+    callback(false)
+  })
+  
+  dialog.querySelector('#confirm-ok').addEventListener('click', () => {
+    overlay.remove()
+    callback(true)
+  })
+}
 
 async function connect() {
   supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
@@ -15,7 +116,7 @@ async function connect() {
   const { data, error } = await supabase.storage.from(SUPABASE_CONFIG.bucket).list('', { limit: 1 })
   if (error) {
     console.error('Bucket access test failed:', error)
-    alert(`Cannot access bucket "${SUPABASE_CONFIG.bucket}":\n\n${error.message}\n\nPlease check:\n1. Bucket exists in Supabase dashboard\n2. RLS is disabled on the bucket\n3. Bucket is set to public`)
+    showAlert(`Cannot access bucket "${SUPABASE_CONFIG.bucket}":\n\n${error.message}\n\nPlease check:\n1. Bucket exists in Supabase dashboard\n2. RLS is disabled on the bucket\n3. Bucket is set to public`, 'error')
     return
   }
   
@@ -35,7 +136,7 @@ async function listAll() {
       offset: page * 100,
       sortBy: { column: 'updated_at', order: 'desc' }
     })
-    if (error) { console.error(error); alert('List error: ' + error.message); return }
+    if (error) { console.error(error); showAlert('List error: ' + error.message, 'error'); return }
     all.push(...data.filter(x => x.name))
     if (!data.length || data.length < 100) done = true; else page++
   }
@@ -132,10 +233,12 @@ async function renderItem(bucket, obj) {
   const delBtn = item.querySelector('button[data-name]')
   delBtn.addEventListener('click', async (e) => {
     const name = e.currentTarget.getAttribute('data-name')
-    if (!confirm('Delete this image?')) return
-    const { error } = await supabase.storage.from(bucket).remove([name])
-    if (error) return alert('Delete failed: ' + error.message)
-    item.remove()
+    showConfirm('Delete this image?', async (confirmed) => {
+      if (!confirmed) return
+      const { error } = await supabase.storage.from(bucket).remove([name])
+      if (error) return showAlert('Delete failed: ' + error.message, 'error')
+      item.remove()
+    })
   })
 }
 
@@ -144,19 +247,14 @@ async function generateFileName() {
   const year = now.getFullYear()
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
-  const datePrefix = `${year}${month}${day}`
+  const datePrefix = `${day}${month}${year}`
   
-  // Get list of existing files to find next available number
-  const { data: existingFiles } = await supabase.storage.from(SUPABASE_CONFIG.bucket).list('')
-  const existingNames = existingFiles ? existingFiles.map(f => f.name) : []
+  // Generate a unique hash using timestamp + random number
+  const timestamp = Date.now()
+  const random = Math.floor(Math.random() * 10000)
+  const hash = `${timestamp}_${random}`
   
-  // Find the next available pic number for today
-  let picNumber = 1
-  while (existingNames.includes(`${datePrefix}_pic${picNumber}.jpg`)) {
-    picNumber++
-  }
-  
-  return `${datePrefix}_pic${picNumber}.jpg`
+  return `${datePrefix}_${hash}.jpg`
 }
 
 function updateDeleteButton() {
@@ -168,20 +266,22 @@ function updateDeleteButton() {
 }
 
 async function deleteSelected() {
-  if (!supabase) return alert('Please connect to Supabase first')
-  if (selectedImages.length === 0) return alert('No images selected')
+  if (!supabase) return showAlert('Please connect to Supabase first', 'error')
+  if (selectedImages.length === 0) return showAlert('No images selected', 'error')
   
   const countToDelete = selectedImages.length
-  if (!confirm(`Delete ${countToDelete} selected image(s)? This cannot be undone!`)) return
-  
-  const bucket = SUPABASE_CONFIG.bucket
-  const { error } = await supabase.storage.from(bucket).remove(selectedImages)
-  if (error) return alert('Delete failed: ' + error.message)
-  
-  selectedImages = []
-  updateDeleteButton()
-  await listAll()
-  alert(`Successfully deleted ${countToDelete} image(s)!`)
+  showConfirm(`Delete ${countToDelete} selected image(s)? This cannot be undone!`, async (confirmed) => {
+    if (!confirmed) return
+    
+    const bucket = SUPABASE_CONFIG.bucket
+    const { error } = await supabase.storage.from(bucket).remove(selectedImages)
+    if (error) return showAlert('Delete failed: ' + error.message, 'error')
+    
+    selectedImages = []
+    updateDeleteButton()
+    await listAll()
+    showAlert(`Successfully deleted ${countToDelete} image(s)!`, 'success')
+  })
 }
 
 function displaySelectedFiles() {
@@ -238,16 +338,39 @@ function displaySelectedFiles() {
 }
 
 async function uploadSelected() {
-  if (!supabase) return alert('Please connect to Supabase first')
-  if (selectedFiles.length === 0) return alert('No files selected')
+  if (!supabase) return showAlert('Please connect to Supabase first', 'error')
+  if (selectedFiles.length === 0) return showAlert('No files selected', 'error')
+  if (isUploading) return showAlert('Upload already in progress', 'error')
+  
+  isUploading = true
+  const uploadBtn = el('uploadSelected')
+  const chooseBtn = el('chooseFiles')
+  const clearBtn = el('clearSelection')
+  
+  // Disable buttons and clear selection immediately
+  if (uploadBtn) uploadBtn.disabled = true
+  if (chooseBtn) chooseBtn.disabled = true
+  if (clearBtn) clearBtn.disabled = true
+  
+  // Store files to upload and clear the selection immediately
+  const filesToUpload = [...selectedFiles]
+  selectedFiles = []
+  el('fileInput').value = ''
+  displaySelectedFiles()
   
   const bucket = SUPABASE_CONFIG.bucket
-  const totalFiles = selectedFiles.length
+  const totalFiles = filesToUpload.length
   let completedFiles = 0
   
-  for (let i = 0; i < selectedFiles.length; i++) {
-    const f = selectedFiles[i]
+  // Show initial progress
+  showAlert(`Starting upload: 0 out of ${totalFiles} images`, 'info')
+  
+  for (let i = 0; i < filesToUpload.length; i++) {
+    const f = filesToUpload[i]
     const fileName = await generateFileName()
+    
+    // Update progress
+    showAlert(`Uploading image ${i + 1} out of ${totalFiles}: ${f.name}`, 'info')
     
     const { data, error } = await supabase.storage.from(bucket).upload(fileName, f, {
       upsert: false,
@@ -257,17 +380,25 @@ async function uploadSelected() {
     
     if (error) { 
       console.error('Upload error details:', error)
-      return alert(`Upload failed for ${f.name}:\n\nError: ${error.message}\n\nThis usually means:\n1. RLS is enabled on the bucket (disable it in Supabase dashboard)\n2. Bucket doesn't exist\n3. Insufficient permissions\n\nCheck the browser console for more details.`) 
+      isUploading = false
+      // Re-enable buttons
+      if (uploadBtn) uploadBtn.disabled = false
+      if (chooseBtn) chooseBtn.disabled = false
+      if (clearBtn) clearBtn.disabled = false
+      return showAlert(`Upload failed for ${f.name}:\n\nError: ${error.message}\n\nThis usually means:\n1. RLS is enabled on the bucket (disable it in Supabase dashboard)\n2. Bucket doesn't exist\n3. Insufficient permissions\n\nCheck the browser console for more details.`, 'error') 
     }
     
     completedFiles++
   }
   
-  selectedFiles = []
-  el('fileInput').value = '' // Clear the file input
-  displaySelectedFiles()
+  isUploading = false
+  // Re-enable buttons
+  if (uploadBtn) uploadBtn.disabled = false
+  if (chooseBtn) chooseBtn.disabled = false
+  if (clearBtn) clearBtn.disabled = false
+  
   await listAll()
-  alert(`Successfully uploaded ${completedFiles} file(s)!`)
+  showAlert(`Successfully uploaded ${completedFiles} out of ${totalFiles} file(s)!`, 'success')
 }
 
 
